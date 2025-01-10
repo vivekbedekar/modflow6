@@ -81,6 +81,7 @@ contains
         isoln = this%idsolutions(is)
         sp => GetBaseSolutionFromList(basesolutionlist, isoln)
         call sp%sln_ca(isgcnvg, isuppress_output)
+        !vsb if(lastStepFailed==1) return
       end do
       if (isgcnvg == 1) exit picardloop
     end do picardloop

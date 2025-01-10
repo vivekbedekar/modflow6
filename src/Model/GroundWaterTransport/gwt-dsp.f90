@@ -1,7 +1,7 @@
 module GwtDspModule
 
   use KindModule, only: DP, I4B
-  use ConstantsModule, only: DONE, DZERO, DHALF, DPI
+  use ConstantsModule, only: DONE, DZERO, DHALF, DPI, DPREC, LINELENGTH
   use NumericalPackageModule, only: NumericalPackageType
   use BaseDisModule, only: DisBaseType
   use TspFmiModule, only: TspFmiType
@@ -25,6 +25,7 @@ module GwtDspModule
     real(DP), dimension(:), pointer, contiguous :: ath1 => null() ! transverse horizontal dispersivity
     real(DP), dimension(:), pointer, contiguous :: ath2 => null() ! transverse horizontal dispersivity
     real(DP), dimension(:), pointer, contiguous :: atv => null() ! transverse vertical dispersivity
+    real(DP), pointer :: twgt => null() ! dispersion time weighting
     integer(I4B), pointer :: idiffc => null() ! flag indicating diffusion is active
     integer(I4B), pointer :: idisp => null() ! flag indicating mechanical dispersion is active
     integer(I4B), pointer :: ialh => null() ! longitudinal horizontal dispersivity data flag
@@ -55,6 +56,7 @@ module GwtDspModule
     procedure :: dsp_ac
     procedure :: dsp_mc
     procedure :: dsp_ar
+    procedure :: dsp_dt
     procedure :: dsp_ad
     procedure :: dsp_fc
     procedure :: dsp_cq
@@ -213,6 +215,66 @@ contains
     this%thetam => thetam
   end subroutine dsp_ar
 
+  !> @brief  Calculate maximum time step length
+  !!
+  !!  Return the smallest time step that meets stability constraints
+  !<
+  subroutine dsp_dt(this, dtmax, msg, thetam, cold, n, numer, denom)
+    use TdisModule, only: delt
+    ! dummy
+    class(GwtDspType) :: this
+    real(DP), intent(in), dimension(:) :: cold
+    real(DP), intent(out) :: dtmax !< maximum allowable dt subject to stability constraint
+    character(len=*), intent(inout) :: msg !< package/cell dt constraint message
+    real(DP), dimension(:), intent(in) :: thetam !< porosity
+    real(DP), intent(inout) :: numer, denom
+    integer(I4B) :: n
+    ! local
+    integer(I4B) :: idiag, ipos, isympos
+    integer(I4B) :: nrmax
+    character(len=LINELENGTH) :: cellstr
+    real(DP) :: dt
+    real(DP) :: flowmax
+    real(DP) :: cell_volume
+    real(DP) :: dnm, theta
+    integer(I4B) :: m
+
+    ! Calculate time step lengths based on stability constraint for each cell
+    ! and store the smallest one
+    theta=this%twgt
+!    do n = 1, this%dis%nodes
+
+!      if (this%fmi%ibdgwfsat0(n) == 0) cycle
+      idiag = this%dis%con%ia(n)
+      dnm = DZERO
+      do ipos = this%dis%con%ia(n) + 1, this%dis%con%ia(n + 1) - 1
+        if (this%dis%con%mask(ipos) == 0) cycle
+        m = this%dis%con%ja(ipos)
+        !if (m < n) cycle
+        if (this%ibound(m) == 0) cycle
+        if (this%fmi%ibdgwfsat0(m) == 0) cycle
+        isympos = this%dis%con%jas(ipos)
+        dnm = dnm + this%dispcoef(isympos)
+      end do
+        !
+        cell_volume = this%dis%get_cell_volume(n, this%dis%top(n))
+        DENOM = DENOM + (DONE-theta) * dnm
+!        if (DENOM >= DPREC) then
+!          dt = cell_volume * this%fmi%gwfsat(n) * thetam(n) / DENOM
+!!vsb          dt = dt * this%ats_percel
+!        endif
+!
+!      if (dt < dtmax) then
+!        dtmax = dt
+!        nrmax = n
+!      end if
+!    end do
+!    if (nrmax > 0) then
+!      call this%dis%noder_to_string(nrmax, cellstr)
+!      write (msg, *) adjustl(trim(this%memoryPath))//'-'//trim(cellstr)
+!    end if
+  end subroutine dsp_dt
+
   !> @brief Advance method for the package
   !<
   subroutine dsp_ad(this)
@@ -251,7 +313,7 @@ contains
   !!
   !!  Method to calculate and fill coefficients for the package.
   !<
-  subroutine dsp_fc(this, kiter, nodes, nja, matrix_sln, idxglo, rhs, cnew)
+  subroutine dsp_fc(this, kiter, nodes, nja, matrix_sln, idxglo, rhs, cnew, cold)
     ! -- modules
     ! -- dummy
     class(GwtDspType) :: this
@@ -261,14 +323,15 @@ contains
     class(MatrixBaseType), pointer :: matrix_sln
     integer(I4B), intent(in), dimension(nja) :: idxglo
     real(DP), intent(inout), dimension(nodes) :: rhs
-    real(DP), intent(inout), dimension(nodes) :: cnew
+    real(DP), intent(inout), dimension(nodes) :: cnew, cold
     ! -- local
     integer(I4B) :: n, m, idiag, idiagm, ipos, isympos, isymcon
-    real(DP) :: dnm
+    real(DP) :: dnm, theta
     !
     if (this%ixt3d > 0) then
       call this%xt3d%xt3d_fc(kiter, matrix_sln, idxglo, rhs, cnew)
     else
+      theta=this%twgt
       do n = 1, nodes
         if (this%fmi%ibdgwfsat0(n) == 0) cycle
         idiag = this%dis%con%ia(n)
@@ -281,14 +344,16 @@ contains
           dnm = this%dispcoef(isympos)
           !
           ! -- Contribution to row n
-          call matrix_sln%add_value_pos(idxglo(ipos), dnm)
-          call matrix_sln%add_value_pos(idxglo(idiag), -dnm)
+          call matrix_sln%add_value_pos(idxglo(ipos), dnm*theta)
+          call matrix_sln%add_value_pos(idxglo(idiag), -dnm*theta)
+          rhs(n) = rhs(n) - (DONE - theta)*dnm*(cold(m)-cold(n))
           !
           ! -- Contribution to row m
           idiagm = this%dis%con%ia(m)
           isymcon = this%dis%con%isym(ipos)
-          call matrix_sln%add_value_pos(idxglo(isymcon), dnm)
-          call matrix_sln%add_value_pos(idxglo(idiagm), -dnm)
+          call matrix_sln%add_value_pos(idxglo(isymcon), dnm*theta)
+          call matrix_sln%add_value_pos(idxglo(idiagm), -dnm*theta)
+          rhs(m) = rhs(m) - (DONE - theta)*dnm*(cold(n)-cold(m))
         end do
       end do
     end if
@@ -332,7 +397,7 @@ contains
   subroutine allocate_scalars(this)
     ! -- modules
     use MemoryManagerModule, only: mem_allocate
-    use ConstantsModule, only: DZERO
+    use ConstantsModule, only: DZERO, DONE
     ! -- dummy
     class(GwtDspType) :: this
     ! -- local
@@ -356,6 +421,7 @@ contains
     call mem_allocate(this%iangle1, 'IANGLE1', this%memoryPath)
     call mem_allocate(this%iangle2, 'IANGLE2', this%memoryPath)
     call mem_allocate(this%iangle3, 'IANGLE3', this%memoryPath)
+    call mem_allocate(this%twgt, 'TWGT', this%memoryPath)
     !
     ! -- Initialize
     this%idiffc = 0
@@ -373,6 +439,10 @@ contains
     this%iangle1 = 1
     this%iangle2 = 1
     this%iangle3 = 1
+    this%twgt = DONE
+    !
+    ! -- Return
+    return
   end subroutine allocate_scalars
 
   !> @ brief Allocate arrays for package
@@ -464,6 +534,7 @@ contains
     call mem_deallocate(this%iangle1)
     call mem_deallocate(this%iangle2)
     call mem_deallocate(this%iangle3)
+    call mem_deallocate(this%twgt)
     !
     ! -- deallocate variables in NumericalPackageType
     call this%NumericalPackageType%da()
@@ -482,6 +553,10 @@ contains
     write (this%iout, '(1x,a)') 'Setting DSP Options'
     write (this%iout, '(4x,a,i0)') 'XT3D formulation [0=INACTIVE, 1=ACTIVE, &
                                    &3=ACTIVE RHS] set to: ', this%ixt3d
+    write (this%iout, '(4x,a,f5.2)') 'Timeweighting fraction &
+                                   &[0.0 = fully explicit, &
+                                   &1.0 = filly implicit], &
+                                   & set to: ', this%twgt
     write (this%iout, '(1x,a,/)') 'End Setting DSP Options'
   end subroutine log_options
 
@@ -496,12 +571,17 @@ contains
     class(GwtDspType) :: this
     ! -- locals
     type(GwtDspParamFoundType) :: found
+    ! -- formats
+    character(len=*), parameter :: fmttwgt = &
+      &"(4x,'DISPERSION TIME-WEIGHTING VALUE HAS BEEN SET TO: ', f5.2)"
     !
     ! -- update defaults with idm sourced values
     call mem_set_value(this%ixt3doff, 'XT3D_OFF', this%input_mempath, &
                        found%xt3d_off)
     call mem_set_value(this%ixt3drhs, 'XT3D_RHS', this%input_mempath, &
                        found%xt3d_rhs)
+    call mem_set_value(this%twgt, 'TWGT', this%input_mempath, &
+                       found%TWEIGHT)
     !
     ! -- set xt3d state flag
     if (found%xt3d_off) this%ixt3d = 0

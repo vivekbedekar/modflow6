@@ -259,7 +259,7 @@ contains
     ! -- Allocate and read modules attached to model
     call this%fmi%fmi_ar(this%ibound)
     if (this%inmvt > 0) call this%mvt%mvt_ar()
-    if (this%inic > 0) call this%ic%ic_ar(this%x)
+    if (this%inic > 0) call this%ic%ic_ar(this%x,this%xold)
     if (this%inmst > 0) call this%mst%mst_ar(this%dis, this%ibound)
     if (this%inadv > 0) call this%adv%adv_ar(this%dis, this%ibound)
     if (this%indsp > 0) call this%dsp%dsp_ar(this%ibound, this%mst%thetam)
@@ -336,13 +336,15 @@ contains
     ! local
     real(DP) :: dtmax
     character(len=LINELENGTH) :: msg
-    dtmax = DNODATA
+    integer(I4B) :: idebug
+    idebug=1
+!vsb    dtmax = DNODATA
 
-    ! advection package courant stability
-    call this%adv%adv_dt(dtmax, msg, this%mst%thetam)
-    if (msg /= '') then
-      call ats_submit_delt(kstp, kper, dtmax, msg)
-    end if
+!vsb    ! advection package courant stability
+!vsb    call this%adv%adv_dt(dtmax, msg, this%mst%thetam, this%xold)
+!vsb    if (msg /= '') then
+!vsb      call ats_submit_delt(kstp, kper, dtmax, msg)
+!vsb    end if
   end subroutine gwt_dt
 
   !> @brief GWT Model Time Step Advance
@@ -351,13 +353,74 @@ contains
   !<
   subroutine gwt_ad(this)
     ! -- modules
-    use SimVariablesModule, only: isimcheck, iFailedStepRetry
+    use SimVariablesModule, only: isimcheck, iFailedStepRetry, lastStepFailed
+    use TdisModule, only: kstp, kper, delt
+    use AdaptiveTimeStepModule, only: ats_submit_delt !, dtmaxgwt
     ! -- dummy
     class(GwtModelType) :: this
     class(BndType), pointer :: packobj
     ! -- local
     integer(I4B) :: irestore
-    integer(I4B) :: ip, n
+    integer(I4B) :: ip, n, m
+    real(DP) :: dtmax
+    character(len=LINELENGTH) :: msg
+    integer(I4B) :: idir, i
+    integer(I4B) :: nrmax
+    real(DP) :: dt
+    integer(I4B) :: ireturn
+    character(len=LINELENGTH) :: cellstr
+    real(DP) :: numer, denom
+    !--------------------------------------------------------------------------
+    !
+    ! advection and dispersion stability
+    ! add if statement for stability check [flag TBD]
+!debug    write(*,*) 'kstp ', kstp
+!debug    write(*,*) 'dtmax ', dtmax
+    dtmax = DNODATA
+    dtmax = delt
+    dt = delt
+    nrmax = 0
+    msg = ''
+    if (this%indsp > 0) call this%dsp%dsp_ad()
+    do n = 1, this%dis%nodes
+      if (this%ibound(n) == 0) cycle
+      if (this%fmi%ibdgwfsat0(n) == 0) cycle
+!      idiag = this%dis%con%ia(n)
+!      do ipos = this%dis%con%ia(n) + 1, this%dis%con%ia(n + 1) - 1
+!        if (this%dis%con%mask(ipos) == 0) cycle
+!        m = this%dis%con%ja(ipos)
+!        if (this%ibound(m) == 0) cycle
+!        numer = 0.
+        denom = 0.
+        if (this%indsp > 0) call this%dsp%dsp_dt(dtmax, msg, this%mst%thetam, this%xold, n, numer, denom)
+        call this%adv%adv_dt(dtmax, msg, this%mst%thetam, this%xold, ireturn, n, numer, denom)
+        !if(ireturn == 0) then
+        !endif
+!      enddo
+!      if (dt < dtmax) then
+!        dtmax = dt
+!        nrmax = n
+!      end if
+    enddo
+!    if (nrmax > 0) then
+!      call this%dis%noder_to_string(nrmax, cellstr)
+!      write (msg, *) adjustl(trim(this%memoryPath))//'-'//trim(cellstr)
+!    end if
+    if (msg /= '') then
+      idir = 4
+      call ats_submit_delt(kstp, kper, dtmax, msg, idir=idir)
+      lastStepFailed = 1
+!     dtmaxgwt=dtmax
+!debug      write(*,*) 'kstp retry', kstp
+      !vsb return
+    end if
+    !debug
+!debug    write(*,*) 'kstp ', kstp
+!debug    write(*,*) 'dtmax ', dtmax
+!debug    write(*,'(a,100f10.3)') 'cold ', (this%xold(i),i=1,5)
+!debug    write(*,'(a,100f10.3)') 'cnew ', (this%x(i),i=1,5)
+    !
+    !--------------------------------------------------------------------------
     !
     ! -- Reset state variable
     irestore = 0
@@ -385,6 +448,7 @@ contains
     !
     ! -- Advance
     if (this%indsp > 0) call this%dsp%dsp_ad()
+    !dispersion coefficients updated at this point; copy before stability check
     if (this%inssm > 0) call this%ssm%ssm_ad()
     do ip = 1, this%bndlist%Count()
       packobj => GetBndFromList(this%bndlist, ip)
@@ -445,11 +509,11 @@ contains
     end if
     if (this%inadv > 0) then
       call this%adv%adv_fc(this%dis%nodes, matrix_sln, this%idxglo, this%x, &
-                           this%rhs)
+                           this%rhs, this%xold)
     end if
     if (this%indsp > 0) then
       call this%dsp%dsp_fc(kiter, this%dis%nodes, this%nja, matrix_sln, &
-                           this%idxglo, this%rhs, this%x)
+                           this%idxglo, this%rhs, this%x, this%xold)
     end if
     if (this%inssm > 0) then
       call this%ssm%ssm_fc(matrix_sln, this%idxglo, this%rhs)

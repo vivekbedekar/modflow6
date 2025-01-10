@@ -1263,6 +1263,7 @@ contains
   !!
   !<
   subroutine sln_ca(this, isgcnvg, isuppress_output)
+    use SimVariablesModule, only: lastStepFailed
     ! -- dummy variables
     class(NumericalSolutionType) :: this !< NumericalSolutionType instance
     integer(I4B), intent(inout) :: isgcnvg !< solution group convergence flag
@@ -1276,6 +1277,7 @@ contains
 
     ! advance the models, exchanges, and solution
     call this%prepareSolve()
+    !vsb if(lastStepFailed == 1) return
 
     select case (isim_mode)
     case (MVALIDATE)
@@ -1413,6 +1415,7 @@ contains
   !!
   !<
   subroutine prepareSolve(this)
+    use SimVariablesModule, only: lastStepFailed
     ! -- dummy variables
     class(NumericalSolutionType) :: this !< NumericalSolutionType instance
     ! -- local variables
@@ -1434,6 +1437,7 @@ contains
     do im = 1, this%modellist%Count()
       mp => GetNumericalModelFromList(this%modellist, im)
       call mp%model_ad()
+      !vsb if(lastStepFailed == 1) return
     end do
 
     ! advance solution

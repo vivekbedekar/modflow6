@@ -14,6 +14,7 @@ module GwtDspInputModule
   type GwtDspParamFoundType
     logical :: xt3d_off = .false.
     logical :: xt3d_rhs = .false.
+    logical :: TWEIGHT = .false.
     logical :: export_ascii = .false.
     logical :: export_nc = .false.
     logical :: diffc = .false.
@@ -63,6 +64,24 @@ module GwtDspInputModule
     'xt3d on right-hand side', & ! longname
     .false., & ! required
     .false., & ! multi-record
+    .false., & ! preserve case
+    .false., & ! layered
+    .false. & ! timeseries
+    )
+
+  type(InputParamDefinitionType), parameter :: &
+    gwtdsp_TWEIGHT = InputParamDefinitionType &
+    ( &
+    'GWT', & ! component
+    'DSP', & ! subcomponent
+    'OPTIONS', & ! block
+    'TWEIGHT', & ! tag name
+    'TWGT', & ! fortran variable
+    'DOUBLE', & ! type
+    '', & ! shape
+    'xt3d on right-hand side', & ! longname
+    .true., & ! required
+    .true., & ! multi-record
     .false., & ! preserve case
     .false., & ! layered
     .false. & ! timeseries
@@ -217,6 +236,7 @@ module GwtDspInputModule
     [ &
     gwtdsp_xt3d_off, &
     gwtdsp_xt3d_rhs, &
+    gwtdsp_TWEIGHT, &
     gwtdsp_export_ascii, &
     gwtdsp_export_nc, &
     gwtdsp_diffc, &

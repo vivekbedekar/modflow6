@@ -321,7 +321,7 @@ contains
     class(BndType), pointer :: packobj
     !
     ! -- Allocate and read modules attached to model
-    if (this%inic > 0) call this%ic%ic_ar(this%x)
+    if (this%inic > 0) call this%ic%ic_ar(this%x, this%xold)
     if (this%innpf > 0) call this%npf%npf_ar(this%ic, this%vsc, this%ibound, &
                                              this%x)
     if (this%invsc > 0) call this%vsc%vsc_ar(this%ibound)

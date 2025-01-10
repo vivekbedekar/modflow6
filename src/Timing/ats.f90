@@ -23,6 +23,7 @@ module AdaptiveTimeStepModule
 
   integer(I4B), pointer :: nper => null() !< set equal to nper
   integer(I4B), pointer :: maxats => null() !< number of ats entries
+  integer(I4B), pointer :: idtgwt => null() !< flag for dt calculation in GWT
   real(DP), public, pointer :: dtstable => null() !< delt value required for stability
   integer(I4B), dimension(:), pointer, contiguous :: kperats => null() !< array of stress period numbers to apply ats (size NPER)
   integer(I4B), dimension(:), pointer, contiguous :: iperats => null() !< array of stress period numbers to apply ats (size MAXATS)
@@ -31,6 +32,7 @@ module AdaptiveTimeStepModule
   real(DP), dimension(:), pointer, contiguous :: dtmax => null() !< input array of maximum time step sizes
   real(DP), dimension(:), pointer, contiguous :: dtadj => null() !< input array of time step factors for shortening or increasing
   real(DP), dimension(:), pointer, contiguous :: dtfailadj => null() !< input array of time step factors for shortening due to nonconvergence
+  real(DP), dimension(:), pointer, contiguous :: dtmaxgwt => null() !< input array of maximum time step sizes
   type(BlockParserType) :: parser !< block parser for reading input file
 
 contains
@@ -115,11 +117,13 @@ contains
     ! -- memory manager variables
     call mem_allocate(nper, 'NPER', 'ATS')
     call mem_allocate(maxats, 'MAXATS', 'ATS')
+    call mem_allocate(idtgwt, 'IDTGWT', 'ATS')
     call mem_allocate(dtstable, 'DTSTABLE', 'ATS')
     !
     ! -- Initialize variables
     nper = 0
     maxats = 0
+    idtgwt = 0
     dtstable = DNODATA
   end subroutine ats_allocate_scalars
 
@@ -141,6 +145,7 @@ contains
     call mem_allocate(dtmax, maxats, 'DTMAX', 'ATS')
     call mem_allocate(dtadj, maxats, 'DTADJ', 'ATS')
     call mem_allocate(dtfailadj, maxats, 'DTFAILADJ', 'ATS')
+    call mem_allocate(dtmaxgwt, maxats, 'DTMAXGWT', 'ATS')
     !
     ! -- initialize kperats
     do n = 1, nper
@@ -155,6 +160,7 @@ contains
       dtmax(n) = DZERO
       dtadj(n) = DZERO
       dtfailadj(n) = DZERO
+      dtmaxgwt(n) = DZERO
     end do
   end subroutine ats_allocate_arrays
 
@@ -169,6 +175,7 @@ contains
     ! -- Scalars
     call mem_deallocate(nper)
     call mem_deallocate(maxats)
+    call mem_deallocate(idtgwt)
     call mem_deallocate(dtstable)
     !
     ! -- Arrays
@@ -179,6 +186,7 @@ contains
     call mem_deallocate(dtmax)
     call mem_deallocate(dtadj)
     call mem_deallocate(dtfailadj)
+    call mem_deallocate(dtmaxgwt)
   end subroutine ats_da
 
   !> @ brief Read options
@@ -505,21 +513,27 @@ contains
     if (isAdaptivePeriod(kper)) then
       n = kperats(kper)
       tsfact = dtadj(n)
-      if (tsfact > DONE) then
         !
         ! -- if idir is present, then dt is a length that should be adjusted
         !    (divided by or multiplied by) by dtadj.  If idir is not present
         !    then dt is the submitted time step.
-        if (present(idir)) then
+      if (present(idir)) then
+        if (tsfact > DONE) then
           dt_temp = DZERO
           if (idir == -1) then
             dt_temp = dt / tsfact
           else if (idir == 1) then
             dt_temp = dt * tsfact
           end if
-        else
-          dt_temp = dt
-        end if
+        endif
+      else
+        dt_temp = dt
+      end if
+      idtgwt = 0
+      if(idir == 4) then
+        dtstable = dt
+        idtgwt = 1
+      endif
         if (kstp > 1 .and. dt_temp > DZERO) then
           write (iout, fmtdtsubmit) trim(adjustl(sloc)), dt_temp
         end if
@@ -527,7 +541,6 @@ contains
           ! -- Reset dtstable to a smaller value
           dtstable = dt_temp
         end if
-      end if
     end if
   end subroutine ats_submit_delt
 
@@ -620,18 +633,23 @@ contains
       &' will be retried using time step of ', G15.7)"
     if (isAdaptivePeriod(kper)) then
       if (lastStepFailed /= 0) then
-        delt_temp = delt
-        n = kperats(kper)
-        tsfact = dtfailadj(n)
-        if (tsfact > DONE) then
-          delt_temp = delt / tsfact
-          if (delt_temp >= dtmin(n)) then
-            finishedTrying = .false.
-            delt = delt_temp
-            write (iout, fmttsi) kstp, kper, delt
+        if(idtgwt==1) then
+          delt = dtstable
+          finishedTrying = .false.
+          write (iout, fmttsi) kstp, kper, delt
+        else
+          delt_temp = delt
+          n = kperats(kper)
+          tsfact = dtfailadj(n)
+          if (tsfact > DONE) then
+            delt_temp = delt / tsfact
+            if (delt_temp >= dtmin(n)) then
+              finishedTrying = .false.
+              delt = delt_temp
+              write (iout, fmttsi) kstp, kper, delt
+            end if
           end if
         end if
-
       end if
     end if
   end subroutine ats_reset_delt

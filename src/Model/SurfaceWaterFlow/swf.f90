@@ -261,7 +261,7 @@ contains
     class(BndType), pointer :: packobj
 
     ! Allocate and read modules attached to model
-    if (this%inic > 0) call this%ic%ic_ar(this%x)
+    if (this%inic > 0) call this%ic%ic_ar(this%x, this%xold)
 
     ! need temporary integer variable to pass to dis_ar
     ! TODO: this should be generalized so dis_ar doesn't have to have it

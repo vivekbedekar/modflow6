@@ -78,10 +78,10 @@ contains
 
   !> @brief Allocate arrays, load from IDM, and assign head
   !<
-  subroutine ic_ar(this, x)
+  subroutine ic_ar(this, x, xold)
     ! -- dummy
     class(SwfIcType) :: this
-    real(DP), dimension(:), intent(inout) :: x
+    real(DP), dimension(:), intent(inout) :: x, xold
     ! -- local
     integer(I4B) :: n
     !

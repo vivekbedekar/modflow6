@@ -258,7 +258,7 @@ contains
     ! -- Allocate and read modules attached to model
     call this%fmi%fmi_ar(this%ibound)
     if (this%inmvt > 0) call this%mvt%mvt_ar()
-    if (this%inic > 0) call this%ic%ic_ar(this%x)
+    if (this%inic > 0) call this%ic%ic_ar(this%x, this%xold)
     if (this%inest > 0) call this%est%est_ar(this%dis, this%ibound)
     if (this%inadv > 0) call this%adv%adv_ar(this%dis, this%ibound)
     if (this%incnd > 0) call this%cnd%cnd_ar(this%ibound, this%est%porosity)
@@ -415,7 +415,7 @@ contains
     end if
     if (this%inadv > 0) then
       call this%adv%adv_fc(this%dis%nodes, matrix_sln, this%idxglo, this%x, &
-                           this%rhs)
+                           this%rhs, this%xold)
     end if
     if (this%incnd > 0) then
       call this%cnd%cnd_fc(kiter, this%dis%nodes, this%nja, matrix_sln, &

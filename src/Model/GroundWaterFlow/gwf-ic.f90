@@ -80,10 +80,10 @@ contains
 
   !> @brief Allocate arrays, load from IDM, and assign head
   !<
-  subroutine ic_ar(this, x)
+  subroutine ic_ar(this, x, xold)
     ! -- dummy
     class(GwfIcType) :: this
-    real(DP), dimension(:), intent(inout) :: x
+    real(DP), dimension(:), intent(inout) :: x, xold
     ! -- local
     integer(I4B) :: n
     !
@@ -96,6 +96,7 @@ contains
     ! -- assign starting head
     do n = 1, this%dis%nodes
       x(n) = this%strt(n)
+      xold(n) = this%strt(n)
     end do
   end subroutine ic_ar
 
